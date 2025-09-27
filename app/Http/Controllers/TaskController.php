@@ -10,35 +10,70 @@ class TaskController extends Controller
 {
     // GET /api/tasks
     public function index()
-{
-    $user = Auth::user();
-    $tasks = Task::with(['assignee', 'creator'])->get();
-    return response()->json($tasks);
-}
+    {
+        $user = Auth::user();
 
+        if (in_array($user->role, ['admin', 'leader', 'manager'])) {
+            // Admin & leader bisa lihat semua task
+            $tasks = Task::with(['creator', 'assignee'])->get();
+        } else {
+            // User hanya bisa lihat task yang assigned ke dia
+            $tasks = Task::with(['creator', 'assignee'])
+                ->where('assigned_to', $user->id)
+                ->get();
+        }
+
+        return response()->json($tasks);
+    }
 
     // POST /api/tasks
     public function store(Request $request)
     {
         $request->validate([
-            'title'       => 'required|string|max:255',
-            'description' => 'nullable|string',
-            'division'    => 'required|string|max:100',
-            'team'        => 'nullable|string|max:100',
-            'assigned_to' => 'nullable|exists:users,id',
+            'title'         => 'required|string|max:255',
+            'description'   => 'nullable|string',
+            'division'      => 'required|string|max:100',
+            'team'          => 'nullable|string|max:100',
+            'task_function' => 'nullable|string|max:100',
+            'priority'      => 'nullable|string|in:low,medium,high',
+            'start_date'    => 'nullable|date',
+            'finish_date'   => 'nullable|date|after_or_equal:start_date',
+            'sla'           => 'nullable|integer',
+            'status'        => 'nullable|string|in:todo,in_progress,review,done',
+            'progress'      => 'nullable|integer|min:0|max:100',
+            'uom'           => 'nullable|string|max:50',
+            'qty'           => 'nullable|integer',
+            'vendor'        => 'nullable|string|max:255',
+            'fdt_id'        => 'nullable|string|max:100',
+            'assigned_to'   => 'nullable|exists:users,id',
+            'remark'        => 'nullable|string|max:500',
         ]);
 
         $task = Task::create([
-            'title'       => $request->title,
-            'description' => $request->description,
-            'division'    => $request->division,
-            'team'        => $request->team,
-            'status'      => 'todo',
-            'created_by'  => Auth::id(),
-            'assigned_to' => $request->assigned_to,
+            'title'         => $request->title,
+            'description'   => $request->description,
+            'division'      => $request->division,
+            'team'          => $request->team,
+            'Function'      => $request->task_function,
+            'priority'      => $request->priority,
+            'start_date'    => $request->start_date,
+            'finish_date'   => $request->finish_date,
+            'sla'           => $request->sla,
+            'status'        => $request->status ?? 'todo',
+            'progress'      => $request->progress ?? 0,
+            'uom'           => $request->uom,
+            'qty'           => $request->qty,
+            'vendor'        => $request->vendor,
+            'fdt_id'        => $request->fdt_id,
+            'created_by'    => Auth::id(),
+            'assigned_to'   => $request->assigned_to,
+            'remark'        => $request->remark ?? null,
         ]);
 
-        return response()->json($task, 201);
+        return response()->json([
+            'message' => 'Task created successfully',
+            'task'    => $task->load(['creator', 'assignee']),
+        ], 201);
     }
 
     // GET /api/tasks/{task}
@@ -51,36 +86,76 @@ class TaskController extends Controller
     public function update(Request $request, Task $task)
     {
         $request->validate([
-            'title'       => 'sometimes|required|string|max:255',
-            'description' => 'nullable|string',
-            'division'    => 'sometimes|required|string|max:100',
-            'team'        => 'nullable|string|max:100',
-            'assigned_to' => 'nullable|exists:users,id',
-            'status'      => 'nullable|in:todo,in_progress,review,done',
+            'title'         => 'required|string|max:255',
+            'description'   => 'nullable|string',
+            'division'      => 'required|string|max:100',
+            'team'          => 'nullable|string|max:100',
+            'task_function' => 'nullable|string|max:100',
+            'priority'      => 'nullable|string|in:low,medium,high',
+            'start_date'    => 'nullable|date',
+            'finish_date'   => 'nullable|date|after_or_equal:start_date',
+            'sla'           => 'nullable|integer',
+            'status'        => 'nullable|string|in:todo,in_progress,review,done',
+            'progress'      => 'nullable|integer|min:0|max:100',
+            'uom'           => 'nullable|string|max:50',
+            'qty'           => 'nullable|integer',
+            'vendor'        => 'nullable|string|max:255',
+            'fdt_id'        => 'nullable|string|max:100',
+            'assigned_to'   => 'nullable|exists:users,id',
+            'remark'        => 'nullable|string|max:500',
         ]);
 
-        $task->update($request->all());
+        $task->update([
+            'title'         => $request->title,
+            'description'   => $request->description,
+            'division'      => $request->division,
+            'team'          => $request->team,
+            'Function'      => $request->task_function,
+            'priority'      => $request->priority,
+            'start_date'    => $request->start_date,
+            'finish_date'   => $request->finish_date,
+            'sla'           => $request->sla,
+            'status'        => $request->status,
+            'progress'      => $request->progress,
+            'uom'           => $request->uom,
+            'qty'           => $request->qty,
+            'vendor'        => $request->vendor,
+            'fdt_id'        => $request->fdt_id,
+            'assigned_to'   => $request->assigned_to,
+            'remark'        => $request->remark ?? $task->remark,
+        ]);
 
-        return response()->json($task);
+        return response()->json([
+            'message' => 'Task updated successfully',
+            'task'    => $task->load(['creator', 'assignee']),
+        ]);
     }
 
     // DELETE /api/tasks/{task}
     public function destroy(Task $task)
     {
         $task->delete();
-        return response()->json(['message' => 'Task deleted']);
+        return response()->json(['message' => 'Task deleted successfully']);
     }
 
     // PATCH /api/tasks/{task}/status
     public function updateStatus(Request $request, Task $task)
     {
         $request->validate([
-            'status' => 'required|in:todo,in_progress,review,done',
+            'status'   => 'required|string|in:todo,in_progress,review,done',
+            'progress' => 'nullable|integer|min:0|max:100',
+            'remark'   => 'nullable|string|max:500',
         ]);
 
-        $task->status = $request->status;
-        $task->save();
+        $task->update([
+            'status'   => $request->status,
+            'progress' => $request->progress ?? $task->progress,
+            'remark'   => $request->remark ?? $task->remark,
+        ]);
 
-        return response()->json($task);
+        return response()->json([
+            'message' => 'Task status updated successfully',
+            'task'    => $task->load(['creator', 'assignee']),
+        ]);
     }
 }

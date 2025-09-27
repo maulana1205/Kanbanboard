@@ -21,10 +21,18 @@ class User extends Authenticatable
         'email',
         'password',
         'role',
+        'avatar', // ditambahkan untuk avatar
     ];
 
     protected $hidden = [
         'password',
         'remember_token',
     ];
+
+    // Accessor untuk avatar
+    public function getAvatarAttribute($value)
+    {
+        if (!$value) return null;
+        return asset('storage/avatars/' . $value);
+    }
 }
