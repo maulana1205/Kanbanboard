@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\Task;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
+use Carbon\Carbon;
 
 class TaskController extends Controller
 {
@@ -14,14 +15,18 @@ class TaskController extends Controller
         $user = Auth::user();
 
         if (in_array($user->role, ['admin', 'leader', 'manager'])) {
-            // Admin & leader bisa lihat semua task
             $tasks = Task::with(['creator', 'assignee'])->get();
         } else {
-            // User hanya bisa lihat task yang assigned ke dia
             $tasks = Task::with(['creator', 'assignee'])
                 ->where('assigned_to', $user->id)
                 ->get();
         }
+
+        // hitung sla_status tiap task
+        $tasks->transform(function ($task) {
+            $task->sla_status = $this->getSlaStatus($task);
+            return $task;
+        });
 
         return response()->json($tasks);
     }
@@ -70,6 +75,10 @@ class TaskController extends Controller
             'remark'        => $request->remark ?? null,
         ]);
 
+        // hitung dan simpan sla_status
+        $task->sla_status = $this->getSlaStatus($task);
+        $task->save();
+
         return response()->json([
             'message' => 'Task created successfully',
             'task'    => $task->load(['creator', 'assignee']),
@@ -79,6 +88,7 @@ class TaskController extends Controller
     // GET /api/tasks/{task}
     public function show(Task $task)
     {
+        $task->sla_status = $this->getSlaStatus($task);
         return response()->json($task->load(['creator', 'assignee']));
     }
 
@@ -125,6 +135,10 @@ class TaskController extends Controller
             'remark'        => $request->remark ?? $task->remark,
         ]);
 
+        // hitung dan simpan ulang sla_status
+        $task->sla_status = $this->getSlaStatus($task);
+        $task->save();
+
         return response()->json([
             'message' => 'Task updated successfully',
             'task'    => $task->load(['creator', 'assignee']),
@@ -153,9 +167,51 @@ class TaskController extends Controller
             'remark'   => $request->remark ?? $task->remark,
         ]);
 
+        // hitung ulang sla_status
+        $task->sla_status = $this->getSlaStatus($task);
+        $task->save();
+
         return response()->json([
             'message' => 'Task status updated successfully',
             'task'    => $task->load(['creator', 'assignee']),
         ]);
     }
+
+    /**
+     * Hitung SLA Status
+     */
+    private function getSlaStatus(Task $task)
+    {
+        if (!$task->start_date || !$task->sla) {
+            return 'unknown'; // kalau belum ada data SLA
+        }
+
+        $start = Carbon::parse($task->start_date);
+        $due = $start->copy()->addDays($task->sla);
+
+        // kalau sudah selesai
+        if ($task->finish_date) {
+            $finish = Carbon::parse($task->finish_date);
+            return $finish->gt($due) ? 'overdue' : 'on_time';
+        }
+
+        // kalau belum selesai, cek hari ini
+        return Carbon::now()->gt($due) ? 'overdue' : 'on_time';
+    }
+    public function updateRemark(Request $request, Task $task)
+{
+    // Validasi remark
+    $request->validate([
+        'remark' => 'nullable|string|max:255', // remark boleh kosong
+    ]);
+
+    $task->remark = $request->remark ?? '';
+    $task->save();
+
+    return response()->json([
+        'message' => 'Remark updated successfully',
+        'task' => $task
+    ]);
+}
+
 }

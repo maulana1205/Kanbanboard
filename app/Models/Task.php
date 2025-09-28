@@ -21,6 +21,7 @@ class Task extends Model
         'start_date',
         'finish_date',
         'sla',
+        'sla_status',
         'status',
         'task_progress',     // ✅ sesuai tabel
         'uom',
@@ -29,9 +30,15 @@ class Task extends Model
         'fdt_id',
         'created_by',
         'assigned_to',
+        'remark',
     ];
 
-    protected $appends = ['over_sla_days', 'task_creator_name'];
+    protected $appends = [
+        'over_sla_days',
+        'task_creator_name',
+        'task_function',
+        'sla_status_computed', // 🔹 supaya selalu ada walau field kosong
+    ];
 
     // Relasi ke user pembuat
     public function creator()
@@ -45,7 +52,7 @@ class Task extends Model
         return $this->belongsTo(User::class, 'assigned_to');
     }
 
-    // Hitung over SLA
+    // Hitung over SLA (berapa hari lewat deadline)
     public function getOverSlaDaysAttribute()
     {
         if ($this->sla && $this->start_date) {
@@ -69,9 +76,32 @@ class Task extends Model
     {
         return $this->creator ? $this->creator->name : null;
     }
-    public function getTaskFunctionAttribute()
-{
-    return $this->Function;
-}
 
+    // Ambil task function (karena field di DB huruf besar)
+    public function getTaskFunctionAttribute()
+    {
+        return $this->Function;
+    }
+
+    // Hitung status SLA dinamis (On SLA / Over SLA / N/A)
+    public function getSlaStatusComputedAttribute()
+    {
+        if (!$this->sla || !$this->start_date) {
+            return 'N/A';
+        }
+
+        $deadline = Carbon::parse($this->start_date)->addDays($this->sla);
+
+        // Jika sudah selesai → cek finish_date
+        if ($this->finish_date) {
+            return Carbon::parse($this->finish_date)->greaterThan($deadline)
+                ? 'Over SLA'
+                : 'On SLA';
+        }
+
+        // Jika belum selesai → cek sekarang
+        return now()->greaterThan($deadline)
+            ? 'Over SLA'
+            : 'On SLA';
+    }
 }
