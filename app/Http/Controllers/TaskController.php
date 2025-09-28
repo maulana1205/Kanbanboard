@@ -65,7 +65,7 @@ class TaskController extends Controller
             'finish_date'   => $request->finish_date,
             'sla'           => $request->sla,
             'status'        => $request->status ?? 'todo',
-            'progress'      => $request->progress ?? 0,
+            'task_progress'      => $request->progress ?? $this->autoProgress($request->status ?? 'todo'),
             'uom'           => $request->uom,
             'qty'           => $request->qty,
             'vendor'        => $request->vendor,
@@ -106,7 +106,7 @@ class TaskController extends Controller
             'finish_date'   => 'nullable|date|after_or_equal:start_date',
             'sla'           => 'nullable|integer',
             'status'        => 'nullable|string|in:todo,in_progress,review,done',
-            'progress'      => 'nullable|integer|min:0|max:100',
+            'task_progress'      => 'nullable|integer|min:0|max:100',
             'uom'           => 'nullable|string|max:50',
             'qty'           => 'nullable|integer',
             'vendor'        => 'nullable|string|max:255',
@@ -126,7 +126,7 @@ class TaskController extends Controller
             'finish_date'   => $request->finish_date,
             'sla'           => $request->sla,
             'status'        => $request->status,
-            'progress'      => $request->progress,
+            'task_progress'      => $request->progress ?? $this->autoProgress($request->status),
             'uom'           => $request->uom,
             'qty'           => $request->qty,
             'vendor'        => $request->vendor,
@@ -157,13 +157,13 @@ class TaskController extends Controller
     {
         $request->validate([
             'status'   => 'required|string|in:todo,in_progress,review,done',
-            'progress' => 'nullable|integer|min:0|max:100',
+            'task_progress' => 'nullable|integer|min:0|max:100',
             'remark'   => 'nullable|string|max:500',
         ]);
 
         $task->update([
             'status'   => $request->status,
-            'progress' => $request->progress ?? $task->progress,
+            'task_progress' => $request->progress ?? $this->autoProgress($request->status),
             'remark'   => $request->remark ?? $task->remark,
         ]);
 
@@ -177,41 +177,52 @@ class TaskController extends Controller
         ]);
     }
 
+    // Update remark khusus
+    public function updateRemark(Request $request, Task $task)
+    {
+        $request->validate([
+            'remark' => 'nullable|string|max:255',
+        ]);
+
+        $task->remark = $request->remark ?? '';
+        $task->save();
+
+        return response()->json([
+            'message' => 'Remark updated successfully',
+            'task' => $task
+        ]);
+    }
+
     /**
      * Hitung SLA Status
      */
     private function getSlaStatus(Task $task)
     {
         if (!$task->start_date || !$task->sla) {
-            return 'unknown'; // kalau belum ada data SLA
+            return 'unknown';
         }
 
         $start = Carbon::parse($task->start_date);
         $due = $start->copy()->addDays($task->sla);
 
-        // kalau sudah selesai
         if ($task->finish_date) {
             $finish = Carbon::parse($task->finish_date);
             return $finish->gt($due) ? 'overdue' : 'on_time';
         }
 
-        // kalau belum selesai, cek hari ini
         return Carbon::now()->gt($due) ? 'overdue' : 'on_time';
     }
-    public function updateRemark(Request $request, Task $task)
-{
-    // Validasi remark
-    $request->validate([
-        'remark' => 'nullable|string|max:255', // remark boleh kosong
-    ]);
 
-    $task->remark = $request->remark ?? '';
-    $task->save();
-
-    return response()->json([
-        'message' => 'Remark updated successfully',
-        'task' => $task
-    ]);
-}
-
+    /**
+     * Hitung progress otomatis berdasarkan status
+     */
+    private function autoProgress(string $status): int
+    {
+        return match($status) {
+            'todo' => 0,
+            'in_progress', 'review' => 50,
+            'done' => 100,
+            default => 0,
+        };
+    }
 }
